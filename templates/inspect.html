@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}검사 시작 - Window Inspection{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>새 검사 시작</h1>
+</div>
+
+<div class="card" style="max-width: 600px;">
+  <form id="inspect-form" onsubmit="startInspection(event)" enctype="multipart/form-data">
+    <div class="form-group">
+      <label>건물 선택 *</label>
+      <select id="building-select" name="building_id" required>
+        <option value="">건물을 선택하세요</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>영상 파일 업로드 *</label>
+      <input type="file" id="video-file" name="video" accept="video/*" required />
+      <small>MP4, MOV, AVI 형식 지원 / 스마트폰 촬영 영상 가능</small>
+    </div>
+    <div id="progress-area" style="display:none;">
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="progress-bar"></div>
+      </div>
+      <p id="progress-text">업로드 중...</p>
+    </div>
+    <button type="submit" class="btn" id="submit-btn">검사 시작</button>
+  </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  async function loadBuildings() {
+    const buildings = await fetch('/api/buildings/').then(r => r.json());
+    const sel = document.getElementById('building-select');
+    buildings.forEach(b => {
+      const opt = document.createElement('option');
+      opt.value = b.id;
+      opt.textContent = b.name;
+      sel.appendChild(opt);
+    });
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('building_id')) sel.value = params.get('building_id');
+  }
+
+  async function startInspection(e) {
+    e.preventDefault();
+    const buildingId = document.getElementById('building-select').value;
+    const videoFile = document.getElementById('video-file').files[0];
+    if (!buildingId || !videoFile) return;
+
+    const formData = new FormData();
+    formData.append('building_id', buildingId);
+    formData.append('video', videoFile);
+
+    document.getElementById('submit-btn').disabled = true;
+    document.getElementById('progress-area').style.display = 'block';
+    document.getElementById('progress-bar').style.width = '30%';
+    document.getElementById('progress-text').textContent = '업로드 중...';
+
+    const res = await fetch('/api/inspections/', { method: 'POST', body: formData });
+    if (!res.ok) {
+      alert('업로드에 실패했습니다.');
+      document.getElementById('submit-btn').disabled = false;
+      return;
+    }
+
+    const inspection = await res.json();
+    document.getElementById('progress-bar').style.width = '60%';
+    document.getElementById('progress-text').textContent = '처리 중... (백그라운드 실행)';
+
+    // 처리 완료 폴링
+    const poll = setInterval(async () => {
+      const r = await fetch(`/api/inspections/${inspection.id}`).then(x => x.json());
+      if (r.status === 'completed' || r.status === 'failed') {
+        clearInterval(poll);
+        document.getElementById('progress-bar').style.width = '100%';
+        document.getElementById('progress-text').textContent =
+          r.status === 'completed' ? '완료! 결과 페이지로 이동합니다...' : '처리 중 오류가 발생했습니다.';
+        if (r.status === 'completed') {
+          setTimeout(() => window.location.href = `/result/${inspection.id}`, 1000);
+        }
+      }
+    }, 2000);
+  }
+
+  loadBuildings();
+</script>
+{% endblock %}

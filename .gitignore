@@ -1,0 +1,12 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+uploads/*
+results/*
+!uploads/.gitkeep
+!results/.gitkeep
+ml/weights/*.pt
+*.db

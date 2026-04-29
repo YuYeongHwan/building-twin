@@ -1,0 +1,24 @@
+# Core
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+python-multipart==0.0.20
+jinja2==3.1.4
+python-dotenv==1.0.1
+
+# Database
+sqlalchemy==2.0.36
+pymysql==1.1.1
+alembic==1.14.0
+cryptography==43.0.3
+
+# ML / Vision
+opencv-python==4.10.0.84
+ultralytics==8.3.52
+numpy==1.26.4
+Pillow==11.0.0
+scikit-learn==1.5.2
+
+# Utils
+pydantic==2.10.3
+pydantic-settings==2.6.1
+aiofiles==24.1.0

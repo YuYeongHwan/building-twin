@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}대시보드 - Window Inspection{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>대시보드</h1>
+  <p class="subtitle">고층 건물 외벽 창문 오염도 검사 시스템</p>
+</div>
+
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-number" id="stat-buildings">-</div>
+    <div class="stat-label">등록 건물</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-number" id="stat-inspections">-</div>
+    <div class="stat-label">총 검사 횟수</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-number" id="stat-windows">-</div>
+    <div class="stat-label">분석된 창문</div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>최근 검사 목록</h2>
+  <table class="table" id="inspections-table">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>건물</th>
+        <th>파일명</th>
+        <th>창문 수</th>
+        <th>상태</th>
+        <th>검사일시</th>
+        <th>결과</th>
+      </tr>
+    </thead>
+    <tbody id="inspections-body">
+      <tr><td colspan="7" class="loading">불러오는 중...</td></tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  async function loadDashboard() {
+    const [buildings, inspections] = await Promise.all([
+      fetch('/api/buildings/').then(r => r.json()),
+      fetch('/api/inspections/').then(r => r.json()),
+    ]);
+
+    document.getElementById('stat-buildings').textContent = buildings.length;
+    document.getElementById('stat-inspections').textContent = inspections.length;
+
+    const totalWindows = inspections.reduce((s, i) => s + (i.total_windows || 0), 0);
+    document.getElementById('stat-windows').textContent = totalWindows;
+
+    const buildingMap = Object.fromEntries(buildings.map(b => [b.id, b.name]));
+    const tbody = document.getElementById('inspections-body');
+    if (inspections.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty">검사 기록이 없습니다.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = inspections.slice(0, 10).map(i => `
+      <tr>
+        <td>${i.id}</td>
+        <td>${buildingMap[i.building_id] || '-'}</td>
+        <td class="filename">${i.video_filename}</td>
+        <td>${i.total_windows}</td>
+        <td><span class="badge badge-${i.status}">${i.status}</span></td>
+        <td>${new Date(i.inspected_at).toLocaleString('ko-KR')}</td>
+        <td><a href="/result/${i.id}" class="btn btn-sm">상세보기</a></td>
+      </tr>
+    `).join('');
+  }
+
+  loadDashboard();
+</script>
+{% endblock %}

@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}검사 결과 - Window Inspection{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/" class="btn btn-ghost">&larr; 대시보드</a>
+  <h1>검사 결과 #<span id="insp-id">-</span></h1>
+</div>
+
+<div class="result-meta card" id="result-meta">불러오는 중...</div>
+
+<div class="grade-overview">
+  <h2>등급별 요약</h2>
+  <div class="grade-bars" id="grade-bars"></div>
+  <div class="grade-legend">
+    <span class="grade-chip A">A 청결 (0~25%)</span>
+    <span class="grade-chip B">B 경미 (25~50%)</span>
+    <span class="grade-chip C">C 보통 (50~75%)</span>
+    <span class="grade-chip D">D 심각 (75~100%)</span>
+  </div>
+</div>
+
+<div class="section">
+  <h2>창문 목록</h2>
+  <div class="filter-row">
+    <label>등급 필터:</label>
+    <button class="grade-filter active" data-grade="">전체</button>
+    <button class="grade-filter" data-grade="A">A</button>
+    <button class="grade-filter" data-grade="B">B</button>
+    <button class="grade-filter" data-grade="C">C</button>
+    <button class="grade-filter" data-grade="D">D</button>
+  </div>
+  <div class="window-grid" id="window-grid">불러오는 중...</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const inspectionId = window.location.pathname.split('/').pop();
+  document.getElementById('insp-id').textContent = inspectionId;
+
+  let allWindows = [];
+
+  async function loadResult() {
+    const [inspection, summary, windows] = await Promise.all([
+      fetch(`/api/inspections/${inspectionId}`).then(r => r.json()),
+      fetch(`/api/windows/summary/${inspectionId}`).then(r => r.json()),
+      fetch(`/api/windows/?inspection_id=${inspectionId}&limit=200`).then(r => r.json()),
+    ]);
+
+    allWindows = windows;
+
+    // 메타 정보
+    document.getElementById('result-meta').innerHTML = `
+      <div class="meta-grid">
+        <div><label>파일명</label><span>${inspection.video_filename}</span></div>
+        <div><label>총 프레임</label><span>${inspection.total_frames ?? '-'}</span></div>
+        <div><label>처리 프레임</label><span>${inspection.processed_frames ?? '-'}</span></div>
+        <div><label>탐지된 창문</label><span>${inspection.total_windows}</span></div>
+        <div><label>상태</label><span class="badge badge-${inspection.status}">${inspection.status}</span></div>
+        <div><label>검사일시</label><span>${new Date(inspection.inspected_at).toLocaleString('ko-KR')}</span></div>
+      </div>
+    `;
+
+    // 등급 바 차트
+    const gradeBars = document.getElementById('grade-bars');
+    const total = summary.reduce((s, g) => s + g.count, 0);
+    const gradeOrder = ['A', 'B', 'C', 'D'];
+    const summaryMap = Object.fromEntries(summary.map(g => [g.grade, g]));
+
+    gradeBars.innerHTML = gradeOrder.map(g => {
+      const info = summaryMap[g] || { count: 0, percentage: 0 };
+      return `
+        <div class="grade-bar-row">
+          <span class="grade-label grade-${g}">${g}</span>
+          <div class="grade-bar-track">
+            <div class="grade-bar-fill grade-${g}" style="width:${info.percentage}%"></div>
+          </div>
+          <span class="grade-count">${info.count}개 (${info.percentage}%)</span>
+        </div>
+      `;
+    }).join('');
+
+    renderWindows(windows);
+  }
+
+  function renderWindows(windows) {
+    const grid = document.getElementById('window-grid');
+    if (windows.length === 0) {
+      grid.innerHTML = '<div class="empty">해당 조건의 창문이 없습니다.</div>';
+      return;
+    }
+    grid.innerHTML = windows.map(w => `
+      <div class="window-card grade-border-${w.grade}">
+        <img src="/api/windows/${w.id}/image" alt="창문 ${w.id}"
+             onerror="this.src='/static/img/no-image.svg'" />
+        <div class="window-info">
+          <span class="grade-chip ${w.grade}">등급 ${w.grade}</span>
+          <div>오염도: ${(w.contamination_score * 100).toFixed(1)}%</div>
+          <div>프레임: ${w.frame_number}</div>
+          <div>신뢰도: ${(w.confidence * 100).toFixed(0)}%</div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  // 등급 필터
+  document.querySelectorAll('.grade-filter').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.grade-filter').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const grade = btn.dataset.grade;
+      renderWindows(grade ? allWindows.filter(w => w.grade === grade) : allWindows);
+    });
+  });
+
+  loadResult();
+</script>
+{% endblock %}

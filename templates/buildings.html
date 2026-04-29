@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}건물 관리 - Window Inspection{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>건물 관리</h1>
+  <button class="btn" onclick="showAddForm()">+ 건물 추가</button>
+</div>
+
+<div id="add-form" class="card" style="display:none; margin-bottom:1.5rem;">
+  <h3>새 건물 등록</h3>
+  <form id="building-form" onsubmit="addBuilding(event)">
+    <div class="form-group">
+      <label>건물명 *</label>
+      <input type="text" id="f-name" required placeholder="예: 롯데월드타워" />
+    </div>
+    <div class="form-group">
+      <label>주소</label>
+      <input type="text" id="f-address" placeholder="예: 서울시 송파구 올림픽로 300" />
+    </div>
+    <div class="form-group">
+      <label>층수</label>
+      <input type="number" id="f-floors" placeholder="예: 123" min="1" />
+    </div>
+    <div class="form-row">
+      <button type="submit" class="btn">등록</button>
+      <button type="button" class="btn btn-ghost" onclick="hideAddForm()">취소</button>
+    </div>
+  </form>
+</div>
+
+<div class="buildings-grid" id="buildings-grid">
+  <div class="loading">불러오는 중...</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function showAddForm() { document.getElementById('add-form').style.display = 'block'; }
+  function hideAddForm() { document.getElementById('add-form').style.display = 'none'; }
+
+  async function addBuilding(e) {
+    e.preventDefault();
+    const body = {
+      name: document.getElementById('f-name').value,
+      address: document.getElementById('f-address').value || null,
+      floor_count: parseInt(document.getElementById('f-floors').value) || null,
+    };
+    const res = await fetch('/api/buildings/', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    if (res.ok) { hideAddForm(); loadBuildings(); }
+    else { alert('등록에 실패했습니다.'); }
+  }
+
+  async function deleteBuilding(id) {
+    if (!confirm('정말 삭제하시겠습니까? 관련 검사 데이터도 모두 삭제됩니다.')) return;
+    await fetch(`/api/buildings/${id}`, { method: 'DELETE' });
+    loadBuildings();
+  }
+
+  async function loadBuildings() {
+    const buildings = await fetch('/api/buildings/').then(r => r.json());
+    const grid = document.getElementById('buildings-grid');
+    if (buildings.length === 0) {
+      grid.innerHTML = '<div class="empty">등록된 건물이 없습니다.</div>';
+      return;
+    }
+    grid.innerHTML = buildings.map(b => `
+      <div class="building-card">
+        <div class="building-icon">🏢</div>
+        <div class="building-info">
+          <h3>${b.name}</h3>
+          <p>${b.address || '주소 미등록'}</p>
+          <p>${b.floor_count ? b.floor_count + '층' : '층수 미등록'}</p>
+        </div>
+        <div class="building-actions">
+          <a href="/inspect?building_id=${b.id}" class="btn btn-sm">검사 시작</a>
+          <button class="btn btn-sm btn-danger" onclick="deleteBuilding(${b.id})">삭제</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  loadBuildings();
+</script>
+{% endblock %}
