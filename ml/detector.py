@@ -4,13 +4,20 @@ import numpy as np
 IMAGE_PATH = "sample_frame.jpg"
 
 # ── 파라미터 ──────────────────────────────────────────────────────
-MIN_AREA    = 3000    # 최소 넓이 (px²)
+MIN_AREA    = 4500    # 최소 넓이 (px²) — 작은 구조물 제거 위해 1.5배 상향
 ASPECT_MIN  = 0.5     # 가로/세로 비율 하한
 ASPECT_MAX  = 2.5     # 가로/세로 비율 상한
 NMS_THRESH  = 0.05    # IoU overlap threshold
 BORDER_PAD  = 20      # 이미지 경계에서 벗어나면 안 되는 여백 (px)
 DUP_XY      = 30      # 중복 박스 판단 좌표 허용 오차 (px)
 MIN_BRIGHT  = 80      # HSV V채널 최솟값 (이보다 어두우면 제외)
+
+# ── 추가 필터 파라미터 ────────────────────────────────────────────
+GLASS_PIXEL_MIN_RATIO = 0.20   # 유리 계열 픽셀이 이 비율 미만이면 제거
+BRICK_RATIO_MAX       = 0.30   # 붉은/주황 계열(벽돌) 픽셀이 이 비율 초과면 제거
+EDGE_DENSITY_MAX      = 0.15   # 내부 엣지 밀도가 이 값 초과면 복잡 구조물로 제거
+COLOR_VAR_MAX_V       = 65     # HSV V채널 표준편차 상한 (균일도)
+COLOR_VAR_MAX_S       = 55     # HSV S채널 표준편차 상한 (균일도)
 # ─────────────────────────────────────────────────────────────────
 
 
@@ -73,6 +80,48 @@ def has_grid_pattern(region_bgr: np.ndarray) -> bool:
 
     # 테두리가 밝고(흰 프레임) 내부에 파란 유리가 있으면 창문
     return border_mean >= 160 and blue_ratio >= 0.05
+
+
+def is_glass_color(roi_hsv: np.ndarray) -> bool:
+    """유리 계열 색상(하늘색/회색/흰색) 픽셀이 GLASS_PIXEL_MIN_RATIO 이상이면 True."""
+    if roi_hsv.size == 0:
+        return False
+    total = roi_hsv.shape[0] * roi_hsv.shape[1]
+    # 채도(S)<80 & 명도(V)>80 : 흰색/회색/연한 하늘색
+    neutral = (roi_hsv[:, :, 1] < 80) & (roi_hsv[:, :, 2] > 80)
+    # 파란 유리: H=90~130, V>50
+    blue    = ((roi_hsv[:, :, 0] >= 90) & (roi_hsv[:, :, 0] <= 130)
+               & (roi_hsv[:, :, 2] > 50))
+    ratio = float(np.count_nonzero(neutral | blue)) / total
+    return ratio >= GLASS_PIXEL_MIN_RATIO
+
+
+def is_brick(roi_hsv: np.ndarray) -> bool:
+    """붉은/주황 계열(벽돌) 픽셀이 BRICK_RATIO_MAX 초과이면 True."""
+    if roi_hsv.size == 0:
+        return False
+    total = roi_hsv.shape[0] * roi_hsv.shape[1]
+    lo = cv2.inRange(roi_hsv, (0,   60, 0), (20,  255, 255))  # 주황~빨강
+    hi = cv2.inRange(roi_hsv, (160, 60, 0), (180, 255, 255))  # 빨강 wrap
+    ratio = float(np.count_nonzero(cv2.bitwise_or(lo, hi))) / total
+    return ratio >= BRICK_RATIO_MAX
+
+
+def is_complex_structure(roi_bgr: np.ndarray) -> bool:
+    """내부 엣지 밀도가 EDGE_DENSITY_MAX 이상이면 복잡한 구조물로 판단해 True."""
+    if roi_bgr.size == 0:
+        return False
+    gray  = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(cv2.GaussianBlur(gray, (3, 3), 0), 50, 150)
+    return float(np.count_nonzero(edges)) / edges.size >= EDGE_DENSITY_MAX
+
+
+def is_color_uniform(roi_hsv: np.ndarray) -> bool:
+    """V·S 채널 표준편차가 임계값 이하(균일한 색상)이면 True."""
+    if roi_hsv.size == 0:
+        return False
+    return (float(np.std(roi_hsv[:, :, 2])) <= COLOR_VAR_MAX_V
+            and float(np.std(roi_hsv[:, :, 1])) <= COLOR_VAR_MAX_S)
 
 
 def _area_score(bw: int, bh: int, median_area: float) -> float:
@@ -179,8 +228,18 @@ for cnt in contours:
     roi_hsv = hsv[y:y + bh, x:x + bw]
     roi_bgr = frame[y:y + bh, x:x + bw]
 
-    # 밝기 필터 통과 또는 격자 패턴으로 창문 확인
+    # 밝기 또는 격자 패턴 기본 확인
     if not brightness_ok(roi_hsv) and not has_grid_pattern(roi_bgr):
+        continue
+
+    # ── 추가 필터 ─────────────────────────────────────────────────
+    if not is_glass_color(roi_hsv):      # 유리 색상 비율 부족
+        continue
+    if is_brick(roi_hsv):                # 벽돌/주황 계열
+        continue
+    if is_complex_structure(roi_bgr):    # 복잡한 구조물(높은 엣지 밀도)
+        continue
+    if not is_color_uniform(roi_hsv):    # 색상 분산 과다
         continue
 
     candidates.append((x, y, bw, bh))

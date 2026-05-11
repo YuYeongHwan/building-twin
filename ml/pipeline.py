@@ -24,13 +24,20 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 # ── 탐지 파라미터 ─────────────────────────────────────────────────
-MIN_AREA    = 3000
+MIN_AREA    = 4500    # 1.5배 상향 — 작은 구조물 제거
 ASPECT_MIN  = 0.5
 ASPECT_MAX  = 2.5
 NMS_THRESH  = 0.05
 BORDER_PAD  = 20
 DUP_XY      = 30
 MIN_BRIGHT  = 80
+
+# ── 추가 필터 파라미터 ────────────────────────────────────────────
+GLASS_PIXEL_MIN_RATIO = 0.20
+BRICK_RATIO_MAX       = 0.30
+EDGE_DENSITY_MAX      = 0.15
+COLOR_VAR_MAX_V       = 65
+COLOR_VAR_MAX_S       = 55
 
 # ── 트래킹 파라미터 ───────────────────────────────────────────────
 TRACK_IOU_THRESH = 0.30   # 같은 창문으로 판단할 IoU
@@ -80,6 +87,40 @@ def _has_grid_pattern(region_bgr):
     blue_mask  = cv2.inRange(interior, (90, 20, 60), (130, 255, 255))
     blue_ratio = float(np.count_nonzero(blue_mask)) / interior[:, :, 0].size
     return float(np.mean(border)) >= 160 and blue_ratio >= 0.05
+
+
+def _is_glass_color(roi_hsv: np.ndarray) -> bool:
+    if roi_hsv.size == 0:
+        return False
+    total   = roi_hsv.shape[0] * roi_hsv.shape[1]
+    neutral = (roi_hsv[:, :, 1] < 80) & (roi_hsv[:, :, 2] > 80)
+    blue    = ((roi_hsv[:, :, 0] >= 90) & (roi_hsv[:, :, 0] <= 130)
+               & (roi_hsv[:, :, 2] > 50))
+    return float(np.count_nonzero(neutral | blue)) / total >= GLASS_PIXEL_MIN_RATIO
+
+
+def _is_brick(roi_hsv: np.ndarray) -> bool:
+    if roi_hsv.size == 0:
+        return False
+    total = roi_hsv.shape[0] * roi_hsv.shape[1]
+    lo = cv2.inRange(roi_hsv, (0,   60, 0), (20,  255, 255))
+    hi = cv2.inRange(roi_hsv, (160, 60, 0), (180, 255, 255))
+    return float(np.count_nonzero(cv2.bitwise_or(lo, hi))) / total >= BRICK_RATIO_MAX
+
+
+def _is_complex_structure(roi_bgr: np.ndarray) -> bool:
+    if roi_bgr.size == 0:
+        return False
+    gray  = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(cv2.GaussianBlur(gray, (3, 3), 0), 50, 150)
+    return float(np.count_nonzero(edges)) / edges.size >= EDGE_DENSITY_MAX
+
+
+def _is_color_uniform(roi_hsv: np.ndarray) -> bool:
+    if roi_hsv.size == 0:
+        return False
+    return (float(np.std(roi_hsv[:, :, 2])) <= COLOR_VAR_MAX_V
+            and float(np.std(roi_hsv[:, :, 1])) <= COLOR_VAR_MAX_S)
 
 
 def _area_score(bw, bh, median_area):
@@ -148,6 +189,14 @@ def detect_windows(frame: np.ndarray) -> list[tuple]:
         roi_hsv = hsv[y:y+bh, x:x+bw]
         roi_bgr = frame[y:y+bh, x:x+bw]
         if not _brightness_ok(roi_hsv) and not _has_grid_pattern(roi_bgr):
+            continue
+        if not _is_glass_color(roi_hsv):
+            continue
+        if _is_brick(roi_hsv):
+            continue
+        if _is_complex_structure(roi_bgr):
+            continue
+        if not _is_color_uniform(roi_hsv):
             continue
         candidates.append((x, y, bw, bh))
 
@@ -426,6 +475,105 @@ def _print_summary(building_name: str, inspection_id: int,
         log.info("  %s등급 %-12s [%s] %3d건 (%4.1f%%)",
                  g, labels[g], bar, cnt, pct)
     log.info("═" * 52)
+
+
+# ════════════════════════════════════════════════════════════════
+# 웹 API 백그라운드 태스크용 클래스
+# ════════════════════════════════════════════════════════════════
+
+class InspectionPipeline:
+    """웹 API 백그라운드 태스크에서 호출하는 파이프라인."""
+
+    def process(self, inspection, video_path: str, db) -> None:
+        from app.models.inspection import InspectionStatus
+        from app.models.building import Building
+
+        if not os.path.exists(video_path):
+            log.error("영상 파일을 찾을 수 없습니다: %s", video_path)
+            inspection.status = InspectionStatus.FAILED
+            db.commit()
+            return
+
+        building = db.get(Building, inspection.building_id)
+        if building is None:
+            log.error("building_id=%d 가 DB에 없습니다.", inspection.building_id)
+            inspection.status = InspectionStatus.FAILED
+            db.commit()
+            return
+
+        inspection.status = InspectionStatus.PROCESSING
+        db.commit()
+        log.info("파이프라인 시작: inspection_id=%d, video=%s", inspection.id, video_path)
+
+        try:
+            results_dir = Path("results") / str(inspection.id)
+            results_dir.mkdir(parents=True, exist_ok=True)
+
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                raise RuntimeError(f"영상을 열 수 없습니다: {video_path}")
+
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            fps          = cap.get(cv2.CAP_PROP_FPS) or 30.0
+            img_h        = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            inspection.total_frames = total_frames
+            db.commit()
+
+            log.info("영상 정보: 총 %d 프레임 / %.1f fps", total_frames, fps)
+
+            tracker        = WindowTracker()
+            frame_idx      = 0
+            sampled_count  = 0
+            total_detected = 0
+            grade_counts   = {"A": 0, "B": 0, "C": 0, "D": 0}
+
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+
+                if frame_idx % FRAME_SAMPLE_RATE == 0:
+                    boxes   = detect_windows(frame)
+                    tracked = tracker.update(boxes, frame_idx)
+                    total_detected += len(tracked)
+
+                    for track_id, box in tracked:
+                        x, y, bw, bh = box
+                        crop         = frame[y:y+bh, x:x+bw]
+                        grade, score = analyze_window(crop)
+                        grade_counts[grade] += 1
+                        _save_results(db, inspection.id, inspection.building_id,
+                                      frame_idx, track_id, box,
+                                      grade, score, crop, results_dir, img_h)
+
+                    inspection.processed_frames = sampled_count + 1
+                    inspection.total_windows    = total_detected
+                    db.commit()
+
+                    elapsed = frame_idx / fps
+                    log.info("[%6.1fs | 프레임 %5d] 창문 %d개 감지",
+                             elapsed, frame_idx, len(tracked))
+                    sampled_count += 1
+
+                frame_idx += 1
+
+            cap.release()
+
+            _create_window_records(db, inspection.building_id, tracker, img_h)
+            inspection.status = InspectionStatus.COMPLETED
+            db.commit()
+            log.info("파이프라인 완료: inspection_id=%d → COMPLETED", inspection.id)
+
+            _print_summary(building.name, inspection.id, sampled_count,
+                           tracker, grade_counts)
+
+        except Exception as e:
+            log.error("파이프라인 오류 (inspection_id=%d): %s", inspection.id, e, exc_info=True)
+            try:
+                inspection.status = InspectionStatus.FAILED
+                db.commit()
+            except Exception:
+                pass
 
 
 # ════════════════════════════════════════════════════════════════

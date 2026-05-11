@@ -1,4 +1,5 @@
 import os
+import logging
 import shutil
 from pathlib import Path
 from typing import Optional
@@ -10,6 +11,10 @@ from app.models.inspection import Inspection, InspectionStatus
 from app.schemas.inspection import InspectionResponse
 
 router = APIRouter(prefix="/api/inspections", tags=["inspections"])
+log = logging.getLogger(__name__)
+
+# 프로젝트 루트: window_inspection/app/api/routes/ → 3단계 위
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _run_pipeline(inspection_id: int):
@@ -17,13 +22,30 @@ def _run_pipeline(inspection_id: int):
     from ml.pipeline import InspectionPipeline
 
     db = SessionLocal()
+    inspection = None
     try:
         inspection = db.query(Inspection).filter(Inspection.id == inspection_id).first()
         if not inspection:
+            log.error("Inspection id=%d 를 찾을 수 없습니다.", inspection_id)
             return
-        video_path = os.path.join("uploads", inspection.video_filename)
+
+        # 절대 경로로 변환 — FastAPI working directory에 무관하게 동작
+        video_path = str(_PROJECT_ROOT / "uploads" / inspection.video_filename)
+        log.info("파이프라인 백그라운드 시작: inspection_id=%d, video=%s",
+                 inspection_id, video_path)
+
         pipeline = InspectionPipeline()
         pipeline.process(inspection, video_path, db)
+
+    except Exception as e:
+        log.error("파이프라인 백그라운드 오류 (inspection_id=%d): %s",
+                  inspection_id, e, exc_info=True)
+        try:
+            if inspection is not None:
+                inspection.status = InspectionStatus.FAILED
+                db.commit()
+        except Exception:
+            pass
     finally:
         db.close()
 
