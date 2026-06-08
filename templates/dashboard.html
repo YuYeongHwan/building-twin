@@ -23,7 +23,12 @@
 </div>
 
 <div class="section">
-  <h2>최근 검사 목록</h2>
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
+    <h2 style="margin:0">최근 검사 목록</h2>
+    <a href="/viewer" class="btn btn-sm" style="background:#3a4a8a;color:#fff;text-decoration:none;padding:6px 14px;border-radius:6px">
+      3D 뷰어 열기
+    </a>
+  </div>
   <table class="table" id="inspections-table">
     <thead>
       <tr>
@@ -31,13 +36,14 @@
         <th>건물</th>
         <th>파일명</th>
         <th>창문 수</th>
+        <th>오염 지수</th>
         <th>상태</th>
         <th>검사일시</th>
         <th>결과</th>
       </tr>
     </thead>
     <tbody id="inspections-body">
-      <tr><td colspan="7" class="loading">불러오는 중...</td></tr>
+      <tr><td colspan="8" class="loading">불러오는 중...</td></tr>
     </tbody>
   </table>
 </div>
@@ -46,9 +52,10 @@
 {% block scripts %}
 <script>
   async function loadDashboard() {
-    const [buildings, inspections] = await Promise.all([
+    const [buildings, inspections, windowResults] = await Promise.all([
       fetch('/api/buildings/').then(r => r.json()),
       fetch('/api/inspections/').then(r => r.json()),
+      fetch('/analysis/windows').then(r => r.json()).catch(() => []),
     ]);
 
     document.getElementById('stat-buildings').textContent = buildings.length;
@@ -57,10 +64,22 @@
     const totalWindows = inspections.reduce((s, i) => s + (i.total_windows || 0), 0);
     document.getElementById('stat-windows').textContent = totalWindows;
 
+    // inspection_id별 평균 pollution_index 계산
+    const pollutionByInspection = {};
+    windowResults.forEach(w => {
+      const iid = w.inspection_id;
+      if (!pollutionByInspection[iid]) pollutionByInspection[iid] = [];
+      pollutionByInspection[iid].push(w.pollution_index ?? w.contamination_score ?? 0);
+    });
+    const avgPollution = {};
+    for (const [iid, vals] of Object.entries(pollutionByInspection)) {
+      avgPollution[iid] = (vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(3);
+    }
+
     const buildingMap = Object.fromEntries(buildings.map(b => [b.id, b.name]));
     const tbody = document.getElementById('inspections-body');
     if (inspections.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" class="empty">검사 기록이 없습니다.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="empty">검사 기록이 없습니다.</td></tr>';
       return;
     }
 
@@ -70,6 +89,7 @@
         <td>${buildingMap[i.building_id] || '-'}</td>
         <td class="filename">${i.video_filename}</td>
         <td>${i.total_windows}</td>
+        <td>${avgPollution[i.id] !== undefined ? avgPollution[i.id] : '-'}</td>
         <td><span class="badge badge-${i.status}">${i.status}</span></td>
         <td>${new Date(i.inspected_at).toLocaleString('ko-KR')}</td>
         <td><a href="/result/${i.id}" class="btn btn-sm">상세보기</a></td>

@@ -38,3 +38,8 @@ def dashboard_detail_page(request: Request, inspection_id: int):
         "dashboard_detail.html",
         {"request": request, "inspection_id": inspection_id},
     )
+
+
+@router.get("/viewer", response_class=HTMLResponse)
+def viewer_page(request: Request):
+    return templates.TemplateResponse("viewer.html", {"request": request})

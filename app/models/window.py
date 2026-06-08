@@ -48,5 +48,6 @@ class WindowResult(Base):
     grade: Mapped[ContaminationGrade] = mapped_column(SAEnum(ContaminationGrade))
     confidence: Mapped[float] = mapped_column(Float)  # 탐지 신뢰도
     crop_image_path: Mapped[Optional[str]] = mapped_column(String(500))
+    pollution_index: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     inspection: Mapped["Inspection"] = relationship("Inspection", back_populates="windows")  # noqa: F821

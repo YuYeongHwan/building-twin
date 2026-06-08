@@ -1,0 +1,318 @@
+{% extends "base.html" %}
+{% block title %}3D 뷰어 - Building Twin{% endblock %}
+
+{% block content %}
+<style>
+  .viewer-layout {
+    display: flex;
+    gap: 0;
+    height: calc(100vh - 64px);
+    margin: -24px;
+    overflow: hidden;
+  }
+
+  /* ── 좌측: 3D 캔버스 ── */
+  .viewer-main {
+    position: relative;
+    flex: 1;
+    background: #0a0a0f;
+    overflow: hidden;
+  }
+
+  #splat-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .viewer-overlay {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    background: rgba(10, 10, 20, 0.82);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 10px;
+    padding: 14px 18px;
+    color: #e0e0e0;
+    font-size: 13px;
+    min-width: 200px;
+    backdrop-filter: blur(6px);
+  }
+  .viewer-overlay h3 {
+    margin: 0 0 10px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    letter-spacing: 0.3px;
+  }
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 5px;
+    gap: 16px;
+  }
+  .stat-row .label { color: #aaa; }
+  .stat-row .value { font-weight: 600; color: #fff; }
+  .grade-row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .grade-chip {
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .grade-A { background: #1a4a1a; color: #4caf50; }
+  .grade-B { background: #4a4a1a; color: #ffeb3b; }
+  .grade-C { background: #4a2a10; color: #ff9800; }
+  .grade-D { background: #4a1010; color: #f44336; }
+
+  .viewer-hint {
+    position: absolute;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.6);
+    color: #aaa;
+    font-size: 11px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+
+  .splat-status {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    color: #aaa;
+  }
+  .splat-status .spinner {
+    width: 40px; height: 40px;
+    border: 3px solid #333;
+    border-top-color: #6c8fff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 12px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── 우측: 창문 오염도 패널 ── */
+  .viewer-panel {
+    width: 280px;
+    flex-shrink: 0;
+    background: #12121a;
+    border-left: 1px solid #222;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .panel-header {
+    padding: 16px;
+    border-bottom: 1px solid #222;
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+  }
+  .panel-header span { color: #666; font-size: 12px; font-weight: 400; margin-left: 6px; }
+
+  .window-list {
+    overflow-y: auto;
+    flex: 1;
+    padding: 8px;
+  }
+  .window-list::-webkit-scrollbar { width: 4px; }
+  .window-list::-webkit-scrollbar-track { background: #0a0a0f; }
+  .window-list::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+
+  .window-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 9px 10px;
+    border-radius: 7px;
+    margin-bottom: 4px;
+    background: #1a1a26;
+    border: 1px solid #222;
+    transition: background 0.15s;
+  }
+  .window-item:hover { background: #22223a; }
+
+  .window-id { font-size: 12px; color: #ccc; font-family: monospace; }
+  .window-meta { text-align: right; }
+  .window-index {
+    font-size: 11px;
+    color: #888;
+    margin-bottom: 2px;
+  }
+  .window-grade-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .panel-empty {
+    text-align: center;
+    color: #555;
+    font-size: 13px;
+    padding: 40px 16px;
+  }
+</style>
+
+<div class="viewer-layout">
+  <!-- 좌측 3D 뷰어 -->
+  <div class="viewer-main">
+    <canvas id="splat-canvas"></canvas>
+
+    <div class="splat-status" id="splat-status">
+      <div class="spinner"></div>
+      <div id="status-text">.splat 파일 로딩 중...</div>
+    </div>
+
+    <!-- 좌상단 통계 오버레이 -->
+    <div class="viewer-overlay" id="stats-overlay" style="display:none">
+      <h3>전체 통계</h3>
+      <div class="stat-row">
+        <span class="label">총 창문 수</span>
+        <span class="value" id="stat-total">-</span>
+      </div>
+      <div class="stat-row">
+        <span class="label">평균 오염도</span>
+        <span class="value" id="stat-avg-index">-</span>
+      </div>
+      <div class="grade-row" id="stat-grades"></div>
+    </div>
+
+    <div class="viewer-hint">드래그: 회전 &nbsp;|&nbsp; 휠: 줌 &nbsp;|&nbsp; 우클릭 드래그: 패닝</div>
+  </div>
+
+  <!-- 우측 창문 리스트 패널 -->
+  <div class="viewer-panel">
+    <div class="panel-header">
+      창문 오염도 목록
+      <span id="panel-count"></span>
+    </div>
+    <div class="window-list" id="window-list">
+      <div class="panel-empty">데이터 불러오는 중...</div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="module">
+  /* ── gsplat.js 로드 ── */
+  import * as GSPLAT from 'https://cdn.jsdelivr.net/npm/gsplat@latest/dist/index.js';
+
+  const canvas     = document.getElementById('splat-canvas');
+  const statusEl   = document.getElementById('splat-status');
+  const statusText = document.getElementById('status-text');
+
+  async function initViewer() {
+    try {
+      const renderer = new GSPLAT.WebGLRenderer(canvas);
+      renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+
+      const scene    = new GSPLAT.Scene();
+      const camera   = new GSPLAT.Camera();
+      const controls = new GSPLAT.OrbitControls(camera, renderer.domElement);
+
+      statusText.textContent = '.splat 파일 파싱 중...';
+
+      await GSPLAT.Loader.LoadAsync('/models/splat', scene, (progress) => {
+        statusText.textContent = `.splat 로딩 중... ${Math.round(progress * 100)}%`;
+      });
+
+      statusEl.style.display = 'none';
+
+      window.addEventListener('resize', () => {
+        renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+        camera.aspect = canvas.clientWidth / canvas.clientHeight;
+        camera.updateProjectionMatrix?.();
+      });
+
+      const animate = () => {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+      };
+      animate();
+
+    } catch (err) {
+      statusText.innerHTML =
+        `.splat 파일을 불러올 수 없습니다.<br>
+        <small style="color:#666">${err.message ?? err}</small><br><br>
+        <small>파이프라인 실행 후 <code>data/splat/</code> 에 파일을 넣어주세요.</small>`;
+      document.querySelector('.splat-status .spinner').style.display = 'none';
+    }
+  }
+
+  /* ── 창문 오염도 데이터 ── */
+  const GRADE_COLOR = { A: '#4caf50', B: '#ffeb3b', C: '#ff9800', D: '#f44336' };
+  const GRADE_BG    = { A: '#1a4a1a', B: '#4a4a1a', C: '#4a2a10', D: '#4a1010' };
+
+  async function loadWindowData() {
+    try {
+      const res     = await fetch('/analysis/windows');
+      const windows = await res.json();
+
+      const listEl    = document.getElementById('window-list');
+      const countEl   = document.getElementById('panel-count');
+      const statsEl   = document.getElementById('stats-overlay');
+
+      if (!windows.length) {
+        listEl.innerHTML = '<div class="panel-empty">분석 결과가 없습니다.<br>파이프라인을 먼저 실행하세요.</div>';
+        return;
+      }
+
+      /* 통계 계산 */
+      const total   = windows.length;
+      const indices = windows.map(w => w.pollution_index ?? w.contamination_score ?? 0);
+      const avg     = indices.reduce((s, v) => s + v, 0) / total;
+      const gradeCnt = { A: 0, B: 0, C: 0, D: 0 };
+      windows.forEach(w => { gradeCnt[w.grade] = (gradeCnt[w.grade] || 0) + 1; });
+
+      document.getElementById('stat-total').textContent     = total;
+      document.getElementById('stat-avg-index').textContent = avg.toFixed(3);
+
+      const gradeRow = document.getElementById('stat-grades');
+      gradeRow.innerHTML = Object.entries(gradeCnt)
+        .filter(([, n]) => n > 0)
+        .map(([g, n]) =>
+          `<span class="grade-chip grade-${g}">${g}: ${n}</span>`
+        ).join('');
+
+      statsEl.style.display = 'block';
+      countEl.textContent   = `${total}개`;
+
+      /* 창문 목록 렌더링 */
+      listEl.innerHTML = windows.map(w => {
+        const idx    = (w.pollution_index ?? w.contamination_score ?? 0).toFixed(3);
+        const grade  = w.grade ?? 'D';
+        const color  = GRADE_COLOR[grade] ?? '#aaa';
+        const bg     = GRADE_BG[grade]    ?? '#333';
+        return `
+          <div class="window-item">
+            <div class="window-id">${w.window_id}</div>
+            <div class="window-meta">
+              <div class="window-index">index: ${idx}</div>
+              <span class="window-grade-badge"
+                    style="background:${bg};color:${color}">
+                등급 ${grade}
+              </span>
+            </div>
+          </div>`;
+      }).join('');
+
+    } catch (err) {
+      document.getElementById('window-list').innerHTML =
+        `<div class="panel-empty">데이터 로드 실패<br><small>${err.message}</small></div>`;
+    }
+  }
+
+  initViewer();
+  loadWindowData();
+</script>
+{% endblock %}

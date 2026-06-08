@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import init_db
 from app.api.routes import buildings, inspections, windows, pages, dashboard
+from app.api.routes import splat, analysis_v2
 
 app = FastAPI(
     title="Building Twin System",
@@ -27,6 +28,8 @@ app.include_router(buildings.router)
 app.include_router(inspections.router)
 app.include_router(windows.router)
 app.include_router(dashboard.router)
+app.include_router(splat.router)
+app.include_router(analysis_v2.router)
 
 
 @app.on_event("startup")
