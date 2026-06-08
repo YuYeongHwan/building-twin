@@ -36,7 +36,7 @@ DATA_DIR       = ROOT / "data"
 RESULTS_FILE   = ROOT / "data" / "results.json"
 DASHBOARD_URL  = "http://localhost:8000/dashboard"
 API_RESULT_URL = "http://localhost:8000/analysis/result"
-UVICORN_CMD    = ["uvicorn", "main:app", "--reload"]
+UVICORN_CMD    = ["python", "-m", "uvicorn", "backend.main:app", "--reload"]
 
 logging.basicConfig(
     level=logging.INFO,
