@@ -7,7 +7,7 @@ from app.core.database import init_db
 from app.api.routes import buildings, inspections, windows, pages, dashboard
 
 app = FastAPI(
-    title="Window Inspection System",
+    title="Building Twin System",
     description="드론/스마트폰 촬영 영상 기반 건물 창문 오염도 분석 시스템",
     version="1.0.0",
 )

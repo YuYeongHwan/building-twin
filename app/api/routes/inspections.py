@@ -13,7 +13,7 @@ from app.schemas.inspection import InspectionResponse
 router = APIRouter(prefix="/api/inspections", tags=["inspections"])
 log = logging.getLogger(__name__)
 
-# 프로젝트 루트: window_inspection/app/api/routes/ → 3단계 위
+# 프로젝트 루트: building_twin/app/api/routes/ → 3단계 위
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 

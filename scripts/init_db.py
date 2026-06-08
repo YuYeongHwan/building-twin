@@ -1,6 +1,6 @@
 """
 데이터베이스 초기화 스크립트.
-MySQL에 window_inspection DB와 테이블을 생성합니다.
+MySQL에 building_twin DB와 테이블을 생성합니다.
 
 사용법:
   python scripts/init_db.py

@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     DB_PORT: int = 3306
     DB_USER: str = "root"
     DB_PASSWORD: str = ""
-    DB_NAME: str = "window_inspection"
+    DB_NAME: str = "building_twin"
 
     APP_HOST: str = "0.0.0.0"
     APP_PORT: int = 8000

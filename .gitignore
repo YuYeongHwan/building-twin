@@ -10,3 +10,9 @@ results/*
 !results/.gitkeep
 ml/weights/*.pt
 *.db
+*.splat
+*.ply
+data/raw_video/
+data/frames/
+data/sparse/
+node_modules/
