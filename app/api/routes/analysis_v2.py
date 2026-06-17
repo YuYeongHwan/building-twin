@@ -95,18 +95,23 @@ def get_all_windows(
         q = q.filter(WindowResult.inspection_id == inspection_id)
     windows = q.order_by(WindowResult.inspection_id, WindowResult.frame_number).all()
 
-    return [
-        {
+    results = []
+    for w in windows:
+        frame = w.frame_number or 0
+        # DB에 구 경로(/results/images/...)가 저장돼 있어도 파일명만 추출해 현재 마운트 경로로 변환
+        raw = w.crop_image_path or ""
+        filename = Path(raw).name if raw else f"window_{frame:03d}_crop.jpg"
+        crop_url = f"/static/results/{filename}" if filename else None
+        results.append({
             "id":                  w.id,
-            "window_id":           f"window_{w.frame_number:03d}",
+            "window_id":           f"window_{frame:03d}",
             "inspection_id":       w.inspection_id,
-            "frame_number":        w.frame_number,
+            "frame_number":        frame,
             "bbox":                [w.bbox_x, w.bbox_y, w.bbox_w, w.bbox_h],
             "contamination_score": w.contamination_score,
             "pollution_index":     w.pollution_index,
             "grade":               w.grade.value if w.grade else "D",
             "confidence":          w.confidence,
-            "crop_image_path":     w.crop_image_path,
-        }
-        for w in windows
-    ]
+            "crop_image_path":     crop_url,
+        })
+    return results

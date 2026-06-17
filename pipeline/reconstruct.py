@@ -356,7 +356,7 @@ def convert_to_splat(ply_path: str, output_path: str) -> None:
       12 bytes: position  (x, y, z)  float32
       12 bytes: scale     (sx,sy,sz) float32  ← exp(log_scale)
        4 bytes: color     (r,g,b,a)  uint8
-       4 bytes: rotation  (w,x,y,z)  int8     ← quaternion × 128
+       4 bytes: rotation  (w,x,y,z)  uint8    ← quaternion × 128 + 128
     """
     src = Path(ply_path)
     dst = Path(output_path)
@@ -392,13 +392,13 @@ def convert_to_splat(ply_path: str, output_path: str) -> None:
             a = int(opacities[i] * 255)
             f.write(struct.pack("<4B", r, g, b, a))
 
-            # Rotation: float quaternion → int8 (× 128, clamped)
+            # Rotation: float quaternion → uint8 (q × 128 + 128, clamped)
             q = np.array([data["rot_0"][i], data["rot_1"][i],
                           data["rot_2"][i], data["rot_3"][i]], dtype=np.float64)
             norm = np.linalg.norm(q)
             if norm > 1e-8:
                 q /= norm
-            qi = np.clip(q * 128.0, -128, 127).astype(np.int8)
+            qi = np.clip(q * 128.0 + 128.0, 0, 255).astype(np.uint8)
             f.write(qi.tobytes())
 
     size_kb = dst.stat().st_size / 1024

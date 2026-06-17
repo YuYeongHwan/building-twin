@@ -15,4 +15,10 @@ ml/weights/*.pt
 data/raw_video/
 data/frames/
 data/sparse/
+data/baseline/
+data/results/
+data/results.json
+data/splat/
+gaussian-splatting/
 node_modules/
+.DS_Store

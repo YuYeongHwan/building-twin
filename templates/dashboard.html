@@ -47,6 +47,16 @@
     </tbody>
   </table>
 </div>
+
+<div class="section" style="margin-top:24px">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
+    <h2 style="margin:0">창문 오염도 갤러리</h2>
+    <small id="gallery-count" style="color:#666">로딩 중...</small>
+  </div>
+  <div id="window-gallery" style="display:flex; flex-wrap:wrap; gap:12px; padding:4px; min-height:80px">
+    <p style="color:#666;padding:16px">로딩 중...</p>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -80,23 +90,69 @@
     const tbody = document.getElementById('inspections-body');
     if (inspections.length === 0) {
       tbody.innerHTML = '<tr><td colspan="8" class="empty">검사 기록이 없습니다.</td></tr>';
+    } else {
+      tbody.innerHTML = inspections.slice(0, 10).map(i => `
+        <tr>
+          <td>${i.id}</td>
+          <td>${buildingMap[i.building_id] || '-'}</td>
+          <td class="filename">${i.video_filename}</td>
+          <td>${i.total_windows}</td>
+          <td>${avgPollution[i.id] !== undefined ? avgPollution[i.id] : '-'}</td>
+          <td><span class="badge badge-${i.status}">${i.status}</span></td>
+          <td>${new Date(i.inspected_at).toLocaleString('ko-KR')}</td>
+          <td><a href="/result/${i.id}" class="btn btn-sm">상세보기</a></td>
+        </tr>
+      `).join('');
+    }
+
+    // 갤러리는 inspections 유무와 무관하게 항상 렌더링
+    renderWindowGallery(windowResults);
+  }
+
+  const GRADE_COLOR = { A:'#4caf50', B:'#ffeb3b', C:'#ff9800', D:'#f44336' };
+  const GRADE_BG    = { A:'#1a4a1a', B:'#3a3a10', C:'#3a1a08', D:'#3a0808' };
+
+  function renderWindowGallery(windowResults) {
+    const galleryEl = document.getElementById('window-gallery');
+    const cntEl     = document.getElementById('gallery-count');
+    if (!galleryEl) return;
+
+    cntEl.textContent = `${windowResults.length}개`;
+
+    if (!windowResults.length) {
+      galleryEl.innerHTML = '<p style="color:#666;padding:16px">크롭 이미지가 없습니다. pipeline/analyze.py 를 먼저 실행하세요.</p>';
       return;
     }
 
-    tbody.innerHTML = inspections.slice(0, 10).map(i => `
-      <tr>
-        <td>${i.id}</td>
-        <td>${buildingMap[i.building_id] || '-'}</td>
-        <td class="filename">${i.video_filename}</td>
-        <td>${i.total_windows}</td>
-        <td>${avgPollution[i.id] !== undefined ? avgPollution[i.id] : '-'}</td>
-        <td><span class="badge badge-${i.status}">${i.status}</span></td>
-        <td>${new Date(i.inspected_at).toLocaleString('ko-KR')}</td>
-        <td><a href="/result/${i.id}" class="btn btn-sm">상세보기</a></td>
-      </tr>
-    `).join('');
+    // frame_number 1~27 (파일 존재) 우선, 최대 27개
+    const items = windowResults.filter(w => w.frame_number >= 1 && w.frame_number <= 27)
+                               .slice(0, 27);
+    console.log(`[갤러리] ${items.length}개 렌더링 | 첫 URL: ${items[0]?.crop_image_path}`);
+    galleryEl.innerHTML = items.map(w => {
+      const idx   = (w.pollution_index ?? 0).toFixed(3);
+      const grade = w.grade ?? 'D';
+      const color = GRADE_COLOR[grade] ?? '#aaa';
+      const bg    = GRADE_BG[grade]   ?? '#333';
+      return `
+        <div style="width:180px;border-radius:8px;overflow:hidden;background:#1a1a26;border:1px solid #2a2a3a">
+          <img src="${w.crop_image_path}"
+               style="width:100%;height:200px;object-fit:cover;border-radius:8px 8px 0 0;"
+               onerror="this.style.display='none'">
+          <div style="padding:8px">
+            <div style="font-size:11px;color:#aaa;margin-bottom:4px">${w.window_id}</div>
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:11px;color:#777">idx: ${idx}</span>
+              <span style="padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;background:${bg};color:${color}">${grade}</span>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
   }
 
-  loadDashboard();
+  loadDashboard().catch(err => {
+    console.error('[대시보드] 로드 오류:', err);
+    const galleryEl = document.getElementById('window-gallery');
+    if (galleryEl) galleryEl.innerHTML = `<p style="color:#f44;padding:16px">로드 실패: ${err.message}</p>`;
+  });
 </script>
 {% endblock %}

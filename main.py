@@ -25,20 +25,16 @@ app.add_middleware(
 )
 
 # ── 정적 파일 마운트 ──────────────────────────────────────────
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# 크롭 이미지: /results/images/<filename> → data/results/<filename>
-# NOTE: 더 구체적인 경로(/results/images)를 먼저 마운트해야 함
+# 크롭 이미지: /static/results/<filename> → data/results/<filename>
+# NOTE: /static/results 를 /static 보다 먼저 마운트해야 prefix 충돌 없음
 (_ROOT / "data" / "results").mkdir(parents=True, exist_ok=True)
 app.mount(
-    "/results/images",
+    "/static/results",
     StaticFiles(directory=str(_ROOT / "data" / "results")),
     name="result-images",
 )
 
-# 기존 검사 결과 정적 파일 (루트 results/ 디렉터리)
-if (_ROOT / "results").exists():
-    app.mount("/results", StaticFiles(directory="results"), name="results")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # ── 라우터 ───────────────────────────────────────────────────
 app.include_router(pages.router)
