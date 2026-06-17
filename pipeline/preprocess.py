@@ -124,7 +124,8 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         target = sys.argv[1]
     else:
-        videos = sorted(WATCH_DIR.glob("*.mp4")) + sorted(WATCH_DIR.glob("*.mov"))
+        videos = (sorted(WATCH_DIR.glob("*.mp4")) + sorted(WATCH_DIR.glob("*.MP4"))
+                  + sorted(WATCH_DIR.glob("*.mov")) + sorted(WATCH_DIR.glob("*.MOV")))
         if not videos:
             log.error(f"data/raw_video/ 에 .mp4 / .mov 파일이 없습니다. ({WATCH_DIR})")
             sys.exit(1)

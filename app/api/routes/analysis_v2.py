@@ -49,20 +49,34 @@ def save_analysis_result(
             )
             .first()
         )
+        bbox = item.get("bbox", [0, 0, 0, 0])
+        bx, by = int(bbox[0]), int(bbox[1])
+        bw = int(bbox[2]) - bx if len(bbox) >= 4 else 0
+        bh = int(bbox[3]) - by if len(bbox) >= 4 else 0
+
+        # crop_image_path: 절대경로에서 파일명만 추출해 URL용으로 변환
+        raw_crop = item.get("crop_image_path", "")
+        crop_url = f"/results/images/{Path(raw_crop).name}" if raw_crop else None
+
         if existing:
-            existing.pollution_index = pollution_index
-            existing.grade = grade
+            existing.pollution_index     = pollution_index
+            existing.grade               = grade
             existing.contamination_score = pollution_index
+            existing.bbox_x, existing.bbox_y = bx, by
+            existing.bbox_w, existing.bbox_h = bw, bh
+            if crop_url:
+                existing.crop_image_path = crop_url
             updated += 1
         else:
             db.add(WindowResult(
                 inspection_id=inspection_id,
                 frame_number=seq,
-                bbox_x=0, bbox_y=0, bbox_w=0, bbox_h=0,
+                bbox_x=bx, bbox_y=by, bbox_w=bw, bbox_h=bh,
                 contamination_score=pollution_index,
                 pollution_index=pollution_index,
                 grade=grade,
                 confidence=1.0,
+                crop_image_path=crop_url,
             ))
             saved += 1
 
@@ -83,15 +97,16 @@ def get_all_windows(
 
     return [
         {
-            "id":                w.id,
-            "window_id":         f"window_{w.frame_number:03d}",
-            "inspection_id":     w.inspection_id,
-            "frame_number":      w.frame_number,
-            "bbox":              [w.bbox_x, w.bbox_y, w.bbox_w, w.bbox_h],
+            "id":                  w.id,
+            "window_id":           f"window_{w.frame_number:03d}",
+            "inspection_id":       w.inspection_id,
+            "frame_number":        w.frame_number,
+            "bbox":                [w.bbox_x, w.bbox_y, w.bbox_w, w.bbox_h],
             "contamination_score": w.contamination_score,
-            "pollution_index":   w.pollution_index,
-            "grade":             w.grade.value if w.grade else "D",
-            "confidence":        w.confidence,
+            "pollution_index":     w.pollution_index,
+            "grade":               w.grade.value if w.grade else "D",
+            "confidence":          w.confidence,
+            "crop_image_path":     w.crop_image_path,
         }
         for w in windows
     ]
