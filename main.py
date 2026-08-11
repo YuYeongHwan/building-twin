@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import init_db
 from app.api.routes import buildings, inspections, windows, pages, dashboard
-from app.api.routes import splat, analysis_v2
+from app.api.routes import splat, analysis_v2, mesh, lidar
 
 _ROOT = Path(__file__).resolve().parent
 
@@ -36,6 +36,10 @@ app.mount(
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# ODM(OpenDroneMap) 결과물 폴더: mesh/texture/좌표 파일을 직접 URL로 접근 가능하게 함
+(_ROOT / "data" / "odm").mkdir(parents=True, exist_ok=True)
+app.mount("/odm", StaticFiles(directory=str(_ROOT / "data" / "odm")), name="odm")
+
 # ── 라우터 ───────────────────────────────────────────────────
 app.include_router(pages.router)
 app.include_router(buildings.router)
@@ -44,6 +48,8 @@ app.include_router(windows.router)
 app.include_router(dashboard.router)
 app.include_router(splat.router)
 app.include_router(analysis_v2.router)
+app.include_router(mesh.router)
+app.include_router(lidar.router)
 
 
 # ── .splat 서빙 (직접 엔드포인트) ────────────────────────────
